@@ -639,7 +639,6 @@ public class OpenNoteCameraView extends JavaCameraView implements PictureCallbac
 
   @Override
   public void onPictureTaken(byte[] data, Camera camera) {
-
     Camera.Size pictureSize = camera.getParameters().getPictureSize();
 
     Mat mat = new Mat(new org.opencv.core.Size(pictureSize.width, pictureSize.height), CvType.CV_8U);
@@ -650,7 +649,6 @@ public class OpenNoteCameraView extends JavaCameraView implements PictureCallbac
     camera.cancelAutoFocus();
     safeToTakePicture = true;
     waitSpinnerInvisible();
-
   }
 
   private void onPictureFailed() {
