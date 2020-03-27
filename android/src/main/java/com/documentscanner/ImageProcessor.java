@@ -115,7 +115,6 @@ public class ImageProcessor extends Handler {
     }
 
     private void processPicture(Mat picture) {
-
         Mat img = Imgcodecs.imdecode(picture, Imgcodecs.CV_LOAD_IMAGE_UNCHANGED);
         picture.release();
 
@@ -133,10 +132,6 @@ public class ImageProcessor extends Handler {
         mMainActivity.saveDocument(doc);
         doc.release();
         picture.release();
-
-        mMainActivity.setImageProcessorBusy(false);
-        mMainActivity.waitSpinnerInvisible();
-
     }
 
     private ScannedDocument detectDocument(Mat inputRgba) {
@@ -193,6 +188,9 @@ public class ImageProcessor extends Handler {
         mPreviewSize = inputRgba.size();
 
         if (quad != null) {
+            float previewWidth = (float) mPreviewSize.height;
+            float previewHeight = (float) mPreviewSize.width;
+
             Point[] rescaledPoints = new Point[4];
 
             double ratio = inputRgba.size().height / 500;
@@ -205,6 +203,18 @@ public class ImageProcessor extends Handler {
                             Math.abs(y - mPreviewSize.height));
                 } else {
                     rescaledPoints[i] = new Point(x, y);
+                }
+            }
+
+            for (int i = 0; i < 4; i++) {
+                if ((Math.abs(previewWidth - (float) rescaledPoints[i].y) / previewWidth) < .02
+                        || (Math.abs(previewHeight - (float) rescaledPoints[i].x) / previewHeight) < .02
+                        || ((float) rescaledPoints[i].y / previewWidth < .02)
+                        || ((float) rescaledPoints[i].x / previewHeight < .02)) {
+                    mMainActivity.getHUD().clear();
+                    mMainActivity.invalidateHUD();
+
+                    return false;
                 }
             }
 
