@@ -6,6 +6,7 @@ import com.documentscanner.views.MainView;
 import com.documentscanner.views.OpenNoteCameraView;
 import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.bridge.WritableNativeMap;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 import com.facebook.react.uimanager.ThemedReactContext;
 import com.facebook.react.uimanager.ViewGroupManager;
@@ -17,6 +18,7 @@ public class DocumentScannerViewManager extends ViewGroupManager<MainView> {
 
     private static final String REACT_CLASS = "RNPdfScanner";
     private MainView view = null;
+    private String processingState = "";
 
     @Override
     public String getName() {
@@ -28,8 +30,22 @@ public class DocumentScannerViewManager extends ViewGroupManager<MainView> {
         view = new MainView(reactContext, (Activity) reactContext.getBaseContext());
         view.setOnProcessingListener(new OpenNoteCameraView.OnProcessingListener() {
             @Override
-            public void onProcessingChange(WritableMap data) {
-                dispatchEvent(reactContext, "onProcessingChange", data);
+            public void onProcessingChange(String state) {
+                if (!processingState.equals(state) && !processingState.equals("processing")) {
+                    processingState = state;
+
+                    WritableMap data = new WritableNativeMap();
+                    if (processingState.equals("searching")) {
+                        data.putBoolean("documentDetected", false);
+                    } else if (processingState.equals("detected")) {
+                        data.putBoolean("documentDetected", true);
+                    } else if (processingState.equals("processing")) {
+                        data.putBoolean("processing", true);
+                    }
+
+                    System.out.println("l33t process change - " + state);
+                    dispatchEvent(reactContext, "onProcessingChange", data);
+                }
             }
         });
 

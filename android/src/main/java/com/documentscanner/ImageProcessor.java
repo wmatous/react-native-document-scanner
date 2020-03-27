@@ -2,6 +2,7 @@ package com.documentscanner;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.graphics.Color;
 import android.graphics.Bitmap;
 import android.graphics.Paint;
 import android.graphics.Path;
@@ -39,403 +40,404 @@ import java.util.HashMap;
 
 public class ImageProcessor extends Handler {
 
-    private static final String TAG = "ImageProcessor";
-    private final OpenNoteCameraView mMainActivity;
-    private boolean mBugRotate;
-    private double colorGain = 1; // contrast
-    private double colorBias = 10; // bright
-    private Size mPreviewSize;
-    private Point[] mPreviewPoints;
-    private int numOfSquares = 0;
-    private int numOfRectangles = 10;
-    private double lastCaptureTime = 0;
-    private double durationBetweenCaptures = 0;
+  private static final String TAG = "ImageProcessor";
+  private final OpenNoteCameraView mMainActivity;
+  private boolean mBugRotate;
+  private double colorGain = 1; // contrast
+  private double colorBias = 10; // bright
+  private Size mPreviewSize;
+  private Point[] mPreviewPoints;
+  private int numOfSquares = 0;
+  private int numOfRectangles = 10;
+  private double lastCaptureTime = 0;
+  private double durationBetweenCaptures = 0;
 
-    public ImageProcessor(Looper looper, OpenNoteCameraView mainActivity, Context context) {
-        super(looper);
-        this.mMainActivity = mainActivity;
-        SharedPreferences sharedPref = PreferenceManager.getDefaultSharedPreferences(context);
-        mBugRotate = sharedPref.getBoolean("bug_rotate", false);
+  public ImageProcessor(Looper looper, OpenNoteCameraView mainActivity, Context context) {
+    super(looper);
+    this.mMainActivity = mainActivity;
+    SharedPreferences sharedPref = PreferenceManager.getDefaultSharedPreferences(context);
+    mBugRotate = sharedPref.getBoolean("bug_rotate", false);
+  }
+
+  public void setNumOfRectangles(int numOfRectangles) {
+    this.numOfRectangles = numOfRectangles;
+  }
+
+  public void setDurationBetweenCaptures(double durationBetweenCaptures) {
+    this.durationBetweenCaptures = durationBetweenCaptures;
+  }
+
+  public void setBrightness(double brightness) {
+    this.colorBias = brightness;
+  }
+
+  public void setContrast(double contrast) {
+    this.colorGain = contrast;
+  }
+
+  public void handleMessage(Message msg) {
+    if (msg.obj.getClass() == OpenNoteMessage.class) {
+
+      OpenNoteMessage obj = (OpenNoteMessage) msg.obj;
+
+      String command = obj.getCommand();
+
+      Log.d(TAG, "Message Received: " + command + " - " + obj.getObj().toString());
+      // TODO: Manage command.equals("colorMode" || "filterMode"), return boolean
+
+      if (command.equals("previewFrame")) {
+        processPreviewFrame((PreviewFrame) obj.getObj());
+      } else if (command.equals("pictureTaken")) {
+        processPicture((Mat) obj.getObj());
+      }
+    }
+  }
+
+  private void processPreviewFrame(PreviewFrame previewFrame) {
+    Mat frame = previewFrame.getFrame();
+
+    boolean focused = mMainActivity.isFocused();
+    boolean documentDetected = detectPreviewDocument(frame) && focused;
+    mMainActivity.documentDetected(documentDetected);
+
+    if (documentDetected) {
+      numOfSquares++;
+      double now = (double) (new Date()).getTime() / 1000.0;
+      if (numOfSquares >= numOfRectangles && now > lastCaptureTime + durationBetweenCaptures) {
+        lastCaptureTime = now;
+        numOfSquares = 0;
+        mMainActivity.requestPicture();
+        mMainActivity.waitSpinnerVisible();
+      }
+    } else {
+      numOfSquares = 0;
     }
 
-    public void setNumOfRectangles(int numOfRectangles) {
-        this.numOfRectangles = numOfRectangles;
+    frame.release();
+    mMainActivity.setImageProcessorBusy(false);
+  }
+
+  private void processPicture(Mat picture) {
+    Mat img = Imgcodecs.imdecode(picture, Imgcodecs.CV_LOAD_IMAGE_UNCHANGED);
+    picture.release();
+
+    Log.d(TAG, "processPicture - imported image " + img.size().width + "x" + img.size().height);
+
+    if (mBugRotate) {
+      Core.flip(img, img, 1);
+      Core.flip(img, img, 0);
     }
 
-    public void setDurationBetweenCaptures(double durationBetweenCaptures) {
-        this.durationBetweenCaptures = durationBetweenCaptures;
+    ScannedDocument doc = detectDocument(img);
+
+    mMainActivity.getHUD().clear();
+    mMainActivity.invalidateHUD();
+    mMainActivity.saveDocument(doc);
+    doc.release();
+    picture.release();
+  }
+
+  private ScannedDocument detectDocument(Mat inputRgba) {
+    ArrayList<MatOfPoint> contours = findContours(inputRgba);
+
+    ScannedDocument sd = new ScannedDocument(inputRgba);
+
+    sd.originalSize = inputRgba.size();
+    Quadrilateral quad = getQuadrilateral(contours, sd.originalSize);
+
+    double ratio = sd.originalSize.height / 500;
+    sd.heightWithRatio = Double.valueOf(sd.originalSize.width / ratio).intValue();
+    sd.widthWithRatio = Double.valueOf(sd.originalSize.height / ratio).intValue();
+
+    Mat doc;
+    if (quad != null) {
+
+      sd.originalPoints = new Point[4];
+
+      sd.originalPoints[0] = new Point(sd.widthWithRatio - quad.points[3].y, quad.points[3].x); // TopLeft
+      sd.originalPoints[1] = new Point(sd.widthWithRatio - quad.points[0].y, quad.points[0].x); // TopRight
+      sd.originalPoints[2] = new Point(sd.widthWithRatio - quad.points[1].y, quad.points[1].x); // BottomRight
+      sd.originalPoints[3] = new Point(sd.widthWithRatio - quad.points[2].y, quad.points[2].x); // BottomLeft
+
+      sd.quadrilateral = quad;
+      sd.previewPoints = mPreviewPoints;
+      sd.previewSize = mPreviewSize;
+
+      doc = fourPointTransform(inputRgba, quad.points);
+    } else {
+      doc = new Mat(inputRgba.size(), CvType.CV_8UC4);
+      inputRgba.copyTo(doc);
     }
+    enhanceDocument(doc);
+    return sd.setProcessed(doc);
+  }
 
-    public void setBrightness(double brightness) {
-        this.colorBias = brightness;
-    }
+  private final HashMap<String, Long> pageHistory = new HashMap<>();
 
-    public void setContrast(double contrast) {
-        this.colorGain = contrast;
-    }
+  private boolean checkQR(String qrCode) {
 
-    public void handleMessage(Message msg) {
-        if (msg.obj.getClass() == OpenNoteMessage.class) {
+    return !(pageHistory.containsKey(qrCode) && pageHistory.get(qrCode) > new Date().getTime() / 1000 - 15);
 
-            OpenNoteMessage obj = (OpenNoteMessage) msg.obj;
+  }
 
-            String command = obj.getCommand();
+  private boolean detectPreviewDocument(Mat inputRgba) {
+    ArrayList<MatOfPoint> contours = findContours(inputRgba);
 
-            Log.d(TAG, "Message Received: " + command + " - " + obj.getObj().toString());
-            // TODO: Manage command.equals("colorMode" || "filterMode"), return boolean
+    Quadrilateral quad = getQuadrilateral(contours, inputRgba.size());
 
-            if (command.equals("previewFrame")) {
-                processPreviewFrame((PreviewFrame) obj.getObj());
-            } else if (command.equals("pictureTaken")) {
-                processPicture((Mat) obj.getObj());
-            }
-        }
-    }
+    Log.i("DESENHAR", "Quad----->" + quad);
 
-    private void processPreviewFrame(PreviewFrame previewFrame) {
-        Mat frame = previewFrame.getFrame();
+    mPreviewPoints = null;
+    mPreviewSize = inputRgba.size();
 
-        boolean focused = mMainActivity.isFocused();
+    if (quad != null) {
+      float previewWidth = (float) mPreviewSize.height;
+      float previewHeight = (float) mPreviewSize.width;
 
-        if (detectPreviewDocument(frame) && focused) {
-            numOfSquares++;
-            double now = (double) (new Date()).getTime() / 1000.0;
-            if (numOfSquares >= numOfRectangles && now > lastCaptureTime + durationBetweenCaptures) {
-                lastCaptureTime = now;
-                numOfSquares = 0;
-                mMainActivity.requestPicture();
-                mMainActivity.waitSpinnerVisible();
-            }
-        } else {
-            numOfSquares = 0;
-        }
+      Point[] rescaledPoints = new Point[4];
 
-        frame.release();
-        mMainActivity.setImageProcessorBusy(false);
-    }
+      double ratio = inputRgba.size().height / 500;
 
-    private void processPicture(Mat picture) {
-        Mat img = Imgcodecs.imdecode(picture, Imgcodecs.CV_LOAD_IMAGE_UNCHANGED);
-        picture.release();
-
-        Log.d(TAG, "processPicture - imported image " + img.size().width + "x" + img.size().height);
-
+      for (int i = 0; i < 4; i++) {
+        int x = Double.valueOf(quad.points[i].x * ratio).intValue();
+        int y = Double.valueOf(quad.points[i].y * ratio).intValue();
         if (mBugRotate) {
-            Core.flip(img, img, 1);
-            Core.flip(img, img, 0);
-        }
-
-        ScannedDocument doc = detectDocument(img);
-
-        mMainActivity.getHUD().clear();
-        mMainActivity.invalidateHUD();
-        mMainActivity.saveDocument(doc);
-        doc.release();
-        picture.release();
-    }
-
-    private ScannedDocument detectDocument(Mat inputRgba) {
-        ArrayList<MatOfPoint> contours = findContours(inputRgba);
-
-        ScannedDocument sd = new ScannedDocument(inputRgba);
-
-        sd.originalSize = inputRgba.size();
-        Quadrilateral quad = getQuadrilateral(contours, sd.originalSize);
-
-        double ratio = sd.originalSize.height / 500;
-        sd.heightWithRatio = Double.valueOf(sd.originalSize.width / ratio).intValue();
-        sd.widthWithRatio = Double.valueOf(sd.originalSize.height / ratio).intValue();
-
-        Mat doc;
-        if (quad != null) {
-
-            sd.originalPoints = new Point[4];
-
-            sd.originalPoints[0] = new Point(sd.widthWithRatio - quad.points[3].y, quad.points[3].x); // TopLeft
-            sd.originalPoints[1] = new Point(sd.widthWithRatio - quad.points[0].y, quad.points[0].x); // TopRight
-            sd.originalPoints[2] = new Point(sd.widthWithRatio - quad.points[1].y, quad.points[1].x); // BottomRight
-            sd.originalPoints[3] = new Point(sd.widthWithRatio - quad.points[2].y, quad.points[2].x); // BottomLeft
-
-            sd.quadrilateral = quad;
-            sd.previewPoints = mPreviewPoints;
-            sd.previewSize = mPreviewSize;
-
-            doc = fourPointTransform(inputRgba, quad.points);
+          rescaledPoints[(i + 2) % 4] = new Point(Math.abs(x - mPreviewSize.width), Math.abs(y - mPreviewSize.height));
         } else {
-            doc = new Mat(inputRgba.size(), CvType.CV_8UC4);
-            inputRgba.copyTo(doc);
+          rescaledPoints[i] = new Point(x, y);
         }
-        enhanceDocument(doc);
-        return sd.setProcessed(doc);
-    }
+      }
 
-    private final HashMap<String, Long> pageHistory = new HashMap<>();
+      for (int i = 0; i < 4; i++) {
+        if ((Math.abs(previewWidth - (float) rescaledPoints[i].y) / previewWidth) < .02
+            || (Math.abs(previewHeight - (float) rescaledPoints[i].x) / previewHeight) < .02
+            || ((float) rescaledPoints[i].y / previewWidth < .02)
+            || ((float) rescaledPoints[i].x / previewHeight < .02)) {
+          mMainActivity.getHUD().clear();
+          mMainActivity.invalidateHUD();
 
-    private boolean checkQR(String qrCode) {
-
-        return !(pageHistory.containsKey(qrCode) && pageHistory.get(qrCode) > new Date().getTime() / 1000 - 15);
-
-    }
-
-    private boolean detectPreviewDocument(Mat inputRgba) {
-        ArrayList<MatOfPoint> contours = findContours(inputRgba);
-
-        Quadrilateral quad = getQuadrilateral(contours, inputRgba.size());
-
-        Log.i("DESENHAR", "Quad----->" + quad);
-
-        mPreviewPoints = null;
-        mPreviewSize = inputRgba.size();
-
-        if (quad != null) {
-            float previewWidth = (float) mPreviewSize.height;
-            float previewHeight = (float) mPreviewSize.width;
-
-            Point[] rescaledPoints = new Point[4];
-
-            double ratio = inputRgba.size().height / 500;
-
-            for (int i = 0; i < 4; i++) {
-                int x = Double.valueOf(quad.points[i].x * ratio).intValue();
-                int y = Double.valueOf(quad.points[i].y * ratio).intValue();
-                if (mBugRotate) {
-                    rescaledPoints[(i + 2) % 4] = new Point(Math.abs(x - mPreviewSize.width),
-                            Math.abs(y - mPreviewSize.height));
-                } else {
-                    rescaledPoints[i] = new Point(x, y);
-                }
-            }
-
-            for (int i = 0; i < 4; i++) {
-                if ((Math.abs(previewWidth - (float) rescaledPoints[i].y) / previewWidth) < .02
-                        || (Math.abs(previewHeight - (float) rescaledPoints[i].x) / previewHeight) < .02
-                        || ((float) rescaledPoints[i].y / previewWidth < .02)
-                        || ((float) rescaledPoints[i].x / previewHeight < .02)) {
-                    mMainActivity.getHUD().clear();
-                    mMainActivity.invalidateHUD();
-
-                    return false;
-                }
-            }
-
-            mPreviewPoints = rescaledPoints;
-
-            drawDocumentBox(mPreviewPoints, mPreviewSize);
-
-            return true;
+          return false;
         }
+      }
 
-        mMainActivity.getHUD().clear();
-        mMainActivity.invalidateHUD();
+      mPreviewPoints = rescaledPoints;
 
-        return false;
+      drawDocumentBox(mPreviewPoints, mPreviewSize);
+
+      return true;
     }
 
-    private void drawDocumentBox(Point[] points, Size stdSize) {
-        Path path = new Path();
+    mMainActivity.getHUD().clear();
+    mMainActivity.invalidateHUD();
 
-        HUDCanvasView hud = mMainActivity.getHUD();
+    return false;
+  }
 
-        // ATTENTION: axis are swapped
+  private void drawDocumentBox(Point[] points, Size stdSize) {
+    Path path = new Path();
 
-        float previewWidth = (float) stdSize.height;
-        float previewHeight = (float) stdSize.width;
+    HUDCanvasView hud = mMainActivity.getHUD();
 
-        path.moveTo(previewWidth - (float) points[0].y, (float) points[0].x);
-        path.lineTo(previewWidth - (float) points[1].y, (float) points[1].x);
-        path.lineTo(previewWidth - (float) points[2].y, (float) points[2].x);
-        path.lineTo(previewWidth - (float) points[3].y, (float) points[3].x);
-        path.close();
+    // ATTENTION: axis are swapped
 
-        PathShape newBox = new PathShape(path, previewWidth, previewHeight);
+    float previewWidth = (float) stdSize.height;
+    float previewHeight = (float) stdSize.width;
 
-        Paint paint = new Paint();
-        paint.setColor(mMainActivity.parsedOverlayColor());
+    path.moveTo(previewWidth - (float) points[0].y, (float) points[0].x);
+    path.lineTo(previewWidth - (float) points[1].y, (float) points[1].x);
+    path.lineTo(previewWidth - (float) points[2].y, (float) points[2].x);
+    path.lineTo(previewWidth - (float) points[3].y, (float) points[3].x);
+    path.close();
 
-        Paint border = new Paint();
-        border.setColor(mMainActivity.parsedOverlayColor());
-        border.setStrokeWidth(5);
+    PathShape newBox = new PathShape(path, previewWidth, previewHeight);
 
-        hud.clear();
-        hud.addShape(newBox, paint, border);
-        mMainActivity.invalidateHUD();
+    Paint paint = new Paint();
+    paint.setColor(Color.argb(60, 252, 205, 72));
+
+    Paint border = new Paint();
+    border.setColor(mMainActivity.parsedOverlayColor());
+    border.setStrokeWidth(15);
+
+    hud.clear();
+    hud.addShape(newBox, paint, border);
+    mMainActivity.invalidateHUD();
+  }
+
+  private Quadrilateral getQuadrilateral(ArrayList<MatOfPoint> contours, Size srcSize) {
+    double ratio = srcSize.height / 500;
+    int height = Double.valueOf(srcSize.height / ratio).intValue();
+    int width = Double.valueOf(srcSize.width / ratio).intValue();
+    Size size = new Size(width, height);
+
+    Log.i("COUCOU", "Size----->" + size);
+    for (MatOfPoint c : contours) {
+      MatOfPoint2f c2f = new MatOfPoint2f(c.toArray());
+      double peri = Imgproc.arcLength(c2f, true);
+      MatOfPoint2f approx = new MatOfPoint2f();
+      Imgproc.approxPolyDP(c2f, approx, 0.02 * peri, true);
+
+      Point[] points = approx.toArray();
+
+      // select biggest 4 angles polygon
+      // if (points.length == 4) {
+      Point[] foundPoints = sortPoints(points);
+
+      if (insideArea(foundPoints, size)) {
+        return new Quadrilateral(c, foundPoints);
+      }
+      // }
     }
 
-    private Quadrilateral getQuadrilateral(ArrayList<MatOfPoint> contours, Size srcSize) {
-        double ratio = srcSize.height / 500;
-        int height = Double.valueOf(srcSize.height / ratio).intValue();
-        int width = Double.valueOf(srcSize.width / ratio).intValue();
-        Size size = new Size(width, height);
+    return null;
+  }
 
-        Log.i("COUCOU", "Size----->" + size);
-        for (MatOfPoint c : contours) {
-            MatOfPoint2f c2f = new MatOfPoint2f(c.toArray());
-            double peri = Imgproc.arcLength(c2f, true);
-            MatOfPoint2f approx = new MatOfPoint2f();
-            Imgproc.approxPolyDP(c2f, approx, 0.02 * peri, true);
+  private Point[] sortPoints(Point[] src) {
 
-            Point[] points = approx.toArray();
+    ArrayList<Point> srcPoints = new ArrayList<>(Arrays.asList(src));
 
-            // select biggest 4 angles polygon
-            // if (points.length == 4) {
-            Point[] foundPoints = sortPoints(points);
+    Point[] result = { null, null, null, null };
 
-            if (insideArea(foundPoints, size)) {
-                return new Quadrilateral(c, foundPoints);
-            }
-            // }
-        }
+    Comparator<Point> sumComparator = new Comparator<Point>() {
+      @Override
+      public int compare(Point lhs, Point rhs) {
+        return Double.compare(lhs.y + lhs.x, rhs.y + rhs.x);
+      }
+    };
 
-        return null;
-    }
+    Comparator<Point> diffComparator = new Comparator<Point>() {
 
-    private Point[] sortPoints(Point[] src) {
+      @Override
+      public int compare(Point lhs, Point rhs) {
+        return Double.compare(lhs.y - lhs.x, rhs.y - rhs.x);
+      }
+    };
 
-        ArrayList<Point> srcPoints = new ArrayList<>(Arrays.asList(src));
+    // top-left corner = minimal sum
+    result[0] = Collections.min(srcPoints, sumComparator);
 
-        Point[] result = { null, null, null, null };
+    // bottom-right corner = maximal sum
+    result[2] = Collections.max(srcPoints, sumComparator);
 
-        Comparator<Point> sumComparator = new Comparator<Point>() {
-            @Override
-            public int compare(Point lhs, Point rhs) {
-                return Double.compare(lhs.y + lhs.x, rhs.y + rhs.x);
-            }
-        };
+    // top-right corner = minimal difference
+    result[1] = Collections.min(srcPoints, diffComparator);
 
-        Comparator<Point> diffComparator = new Comparator<Point>() {
+    // bottom-left corner = maximal difference
+    result[3] = Collections.max(srcPoints, diffComparator);
 
-            @Override
-            public int compare(Point lhs, Point rhs) {
-                return Double.compare(lhs.y - lhs.x, rhs.y - rhs.x);
-            }
-        };
+    return result;
+  }
 
-        // top-left corner = minimal sum
-        result[0] = Collections.min(srcPoints, sumComparator);
+  private boolean insideArea(Point[] rp, Size size) {
+    int width = Double.valueOf(size.width).intValue();
+    int height = Double.valueOf(size.height).intValue();
 
-        // bottom-right corner = maximal sum
-        result[2] = Collections.max(srcPoints, sumComparator);
+    int minimumSize = width / 10;
 
-        // top-right corner = minimal difference
-        result[1] = Collections.min(srcPoints, diffComparator);
+    boolean isANormalShape = rp[0].x != rp[1].x && rp[1].y != rp[0].y && rp[2].y != rp[3].y && rp[3].x != rp[2].x;
+    boolean isBigEnough = ((rp[1].x - rp[0].x >= minimumSize) && (rp[2].x - rp[3].x >= minimumSize)
+        && (rp[3].y - rp[0].y >= minimumSize) && (rp[2].y - rp[1].y >= minimumSize));
 
-        // bottom-left corner = maximal difference
-        result[3] = Collections.max(srcPoints, diffComparator);
+    double leftOffset = rp[0].x - rp[3].x;
+    double rightOffset = rp[1].x - rp[2].x;
+    double bottomOffset = rp[0].y - rp[1].y;
+    double topOffset = rp[2].y - rp[3].y;
 
-        return result;
-    }
+    boolean isAnActualRectangle = ((leftOffset <= minimumSize && leftOffset >= -minimumSize)
+        && (rightOffset <= minimumSize && rightOffset >= -minimumSize)
+        && (bottomOffset <= minimumSize && bottomOffset >= -minimumSize)
+        && (topOffset <= minimumSize && topOffset >= -minimumSize));
 
-    private boolean insideArea(Point[] rp, Size size) {
-        int width = Double.valueOf(size.width).intValue();
-        int height = Double.valueOf(size.height).intValue();
+    return isANormalShape && isAnActualRectangle && isBigEnough;
+  }
 
-        int minimumSize = width / 10;
+  private void enhanceDocument(Mat src) {
+    Imgproc.cvtColor(src, src, Imgproc.COLOR_RGBA2GRAY);
+    src.convertTo(src, CvType.CV_8UC1, colorGain, colorBias);
+  }
 
-        boolean isANormalShape = rp[0].x != rp[1].x && rp[1].y != rp[0].y && rp[2].y != rp[3].y && rp[3].x != rp[2].x;
-        boolean isBigEnough = ((rp[1].x - rp[0].x >= minimumSize) && (rp[2].x - rp[3].x >= minimumSize)
-                && (rp[3].y - rp[0].y >= minimumSize) && (rp[2].y - rp[1].y >= minimumSize));
+  private Mat fourPointTransform(Mat src, Point[] pts) {
 
-        double leftOffset = rp[0].x - rp[3].x;
-        double rightOffset = rp[1].x - rp[2].x;
-        double bottomOffset = rp[0].y - rp[1].y;
-        double topOffset = rp[2].y - rp[3].y;
+    double ratio = src.size().height / 500;
 
-        boolean isAnActualRectangle = ((leftOffset <= minimumSize && leftOffset >= -minimumSize)
-                && (rightOffset <= minimumSize && rightOffset >= -minimumSize)
-                && (bottomOffset <= minimumSize && bottomOffset >= -minimumSize)
-                && (topOffset <= minimumSize && topOffset >= -minimumSize));
+    Point tl = pts[0];
+    Point tr = pts[1];
+    Point br = pts[2];
+    Point bl = pts[3];
 
-        return isANormalShape && isAnActualRectangle && isBigEnough;
-    }
+    double widthA = Math.sqrt(Math.pow(br.x - bl.x, 2) + Math.pow(br.y - bl.y, 2));
+    double widthB = Math.sqrt(Math.pow(tr.x - tl.x, 2) + Math.pow(tr.y - tl.y, 2));
 
-    private void enhanceDocument(Mat src) {
-        Imgproc.cvtColor(src, src, Imgproc.COLOR_RGBA2GRAY);
-        src.convertTo(src, CvType.CV_8UC1, colorGain, colorBias);
-    }
+    double dw = Math.max(widthA, widthB) * ratio;
+    int maxWidth = Double.valueOf(dw).intValue();
 
-    private Mat fourPointTransform(Mat src, Point[] pts) {
+    double heightA = Math.sqrt(Math.pow(tr.x - br.x, 2) + Math.pow(tr.y - br.y, 2));
+    double heightB = Math.sqrt(Math.pow(tl.x - bl.x, 2) + Math.pow(tl.y - bl.y, 2));
 
-        double ratio = src.size().height / 500;
+    double dh = Math.max(heightA, heightB) * ratio;
+    int maxHeight = Double.valueOf(dh).intValue();
 
-        Point tl = pts[0];
-        Point tr = pts[1];
-        Point br = pts[2];
-        Point bl = pts[3];
+    Mat doc = new Mat(maxHeight, maxWidth, CvType.CV_8UC4);
 
-        double widthA = Math.sqrt(Math.pow(br.x - bl.x, 2) + Math.pow(br.y - bl.y, 2));
-        double widthB = Math.sqrt(Math.pow(tr.x - tl.x, 2) + Math.pow(tr.y - tl.y, 2));
+    Mat src_mat = new Mat(4, 1, CvType.CV_32FC2);
+    Mat dst_mat = new Mat(4, 1, CvType.CV_32FC2);
 
-        double dw = Math.max(widthA, widthB) * ratio;
-        int maxWidth = Double.valueOf(dw).intValue();
+    src_mat.put(0, 0, tl.x * ratio, tl.y * ratio, tr.x * ratio, tr.y * ratio, br.x * ratio, br.y * ratio, bl.x * ratio,
+        bl.y * ratio);
+    dst_mat.put(0, 0, 0.0, 0.0, dw, 0.0, dw, dh, 0.0, dh);
 
-        double heightA = Math.sqrt(Math.pow(tr.x - br.x, 2) + Math.pow(tr.y - br.y, 2));
-        double heightB = Math.sqrt(Math.pow(tl.x - bl.x, 2) + Math.pow(tl.y - bl.y, 2));
+    Mat m = Imgproc.getPerspectiveTransform(src_mat, dst_mat);
 
-        double dh = Math.max(heightA, heightB) * ratio;
-        int maxHeight = Double.valueOf(dh).intValue();
+    Imgproc.warpPerspective(src, doc, m, doc.size());
 
-        Mat doc = new Mat(maxHeight, maxWidth, CvType.CV_8UC4);
+    return doc;
+  }
 
-        Mat src_mat = new Mat(4, 1, CvType.CV_32FC2);
-        Mat dst_mat = new Mat(4, 1, CvType.CV_32FC2);
+  private ArrayList<MatOfPoint> findContours(Mat src) {
+    Mat grayImage;
+    Mat cannedImage;
+    Mat resizedImage;
+    Mat binaryImage;
 
-        src_mat.put(0, 0, tl.x * ratio, tl.y * ratio, tr.x * ratio, tr.y * ratio, br.x * ratio, br.y * ratio,
-                bl.x * ratio, bl.y * ratio);
-        dst_mat.put(0, 0, 0.0, 0.0, dw, 0.0, dw, dh, 0.0, dh);
+    double ratio = src.size().height / 500;
+    int height = Double.valueOf(src.size().height / ratio).intValue();
+    int width = Double.valueOf(src.size().width / ratio).intValue();
+    Size size = new Size(width, height);
 
-        Mat m = Imgproc.getPerspectiveTransform(src_mat, dst_mat);
+    resizedImage = new Mat(size, CvType.CV_8UC4);
+    grayImage = new Mat(size, CvType.CV_8UC4);
+    binaryImage = new Mat(size, CvType.CV_8UC4);
+    cannedImage = new Mat(size, CvType.CV_8UC1);
 
-        Imgproc.warpPerspective(src, doc, m, doc.size());
+    Imgproc.resize(src, resizedImage, size);
+    Imgproc.cvtColor(resizedImage, grayImage, Imgproc.COLOR_RGBA2GRAY, 4);
+    Imgproc.GaussianBlur(grayImage, grayImage, new Size(5, 5), 0);
+    Imgproc.threshold(grayImage, binaryImage, 0, 255, Imgproc.THRESH_TOZERO + Imgproc.THRESH_OTSU);
+    Imgproc.Canny(binaryImage, cannedImage, 80, 100, 3, false);
 
-        return doc;
-    }
+    ArrayList<MatOfPoint> contours = new ArrayList<>();
+    Mat hierarchy = new Mat();
 
-    private ArrayList<MatOfPoint> findContours(Mat src) {
-        Mat grayImage;
-        Mat cannedImage;
-        Mat resizedImage;
-        Mat binaryImage;
+    Imgproc.findContours(cannedImage, contours, hierarchy, Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE);
 
-        double ratio = src.size().height / 500;
-        int height = Double.valueOf(src.size().height / ratio).intValue();
-        int width = Double.valueOf(src.size().width / ratio).intValue();
-        Size size = new Size(width, height);
+    hierarchy.release();
 
-        resizedImage = new Mat(size, CvType.CV_8UC4);
-        grayImage = new Mat(size, CvType.CV_8UC4);
-        binaryImage = new Mat(size, CvType.CV_8UC4);
-        cannedImage = new Mat(size, CvType.CV_8UC1);
+    Collections.sort(contours, new Comparator<MatOfPoint>() {
 
-        Imgproc.resize(src, resizedImage, size);
-        Imgproc.cvtColor(resizedImage, grayImage, Imgproc.COLOR_RGBA2GRAY, 4);
-        Imgproc.GaussianBlur(grayImage, grayImage, new Size(5, 5), 0);
-        Imgproc.threshold(grayImage, binaryImage, 0, 255, Imgproc.THRESH_TOZERO + Imgproc.THRESH_OTSU);
-        Imgproc.Canny(binaryImage, cannedImage, 80, 100, 3, false);
+      @Override
+      public int compare(MatOfPoint lhs, MatOfPoint rhs) {
+        return Double.compare(Imgproc.contourArea(rhs), Imgproc.contourArea(lhs));
+      }
+    });
 
-        ArrayList<MatOfPoint> contours = new ArrayList<>();
-        Mat hierarchy = new Mat();
+    resizedImage.release();
+    grayImage.release();
+    cannedImage.release();
 
-        Imgproc.findContours(cannedImage, contours, hierarchy, Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE);
+    return contours;
+  }
 
-        hierarchy.release();
-
-        Collections.sort(contours, new Comparator<MatOfPoint>() {
-
-            @Override
-            public int compare(MatOfPoint lhs, MatOfPoint rhs) {
-                return Double.compare(Imgproc.contourArea(rhs), Imgproc.contourArea(lhs));
-            }
-        });
-
-        resizedImage.release();
-        grayImage.release();
-        cannedImage.release();
-
-        return contours;
-    }
-
-    public void setBugRotate(boolean bugRotate) {
-        mBugRotate = bugRotate;
-    }
+  public void setBugRotate(boolean bugRotate) {
+    mBugRotate = bugRotate;
+  }
 
 }
