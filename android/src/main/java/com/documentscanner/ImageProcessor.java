@@ -75,7 +75,6 @@ public class ImageProcessor extends Handler {
     }
 
     public void handleMessage(Message msg) {
-
         if (msg.obj.getClass() == OpenNoteMessage.class) {
 
             OpenNoteMessage obj = (OpenNoteMessage) msg.obj;
@@ -94,15 +93,14 @@ public class ImageProcessor extends Handler {
     }
 
     private void processPreviewFrame(PreviewFrame previewFrame) {
-
         Mat frame = previewFrame.getFrame();
 
         boolean focused = mMainActivity.isFocused();
 
         if (detectPreviewDocument(frame) && focused) {
             numOfSquares++;
-            double now = (double)(new Date()).getTime() / 1000.0;
-            if (numOfSquares == numOfRectangles && now > lastCaptureTime + durationBetweenCaptures) {
+            double now = (double) (new Date()).getTime() / 1000.0;
+            if (numOfSquares >= numOfRectangles && now > lastCaptureTime + durationBetweenCaptures) {
                 lastCaptureTime = now;
                 numOfSquares = 0;
                 mMainActivity.requestPicture();
@@ -114,7 +112,6 @@ public class ImageProcessor extends Handler {
 
         frame.release();
         mMainActivity.setImageProcessorBusy(false);
-
     }
 
     private void processPicture(Mat picture) {
@@ -186,7 +183,6 @@ public class ImageProcessor extends Handler {
     }
 
     private boolean detectPreviewDocument(Mat inputRgba) {
-
         ArrayList<MatOfPoint> contours = findContours(inputRgba);
 
         Quadrilateral quad = getQuadrilateral(contours, inputRgba.size());
@@ -197,7 +193,6 @@ public class ImageProcessor extends Handler {
         mPreviewSize = inputRgba.size();
 
         if (quad != null) {
-
             Point[] rescaledPoints = new Point[4];
 
             double ratio = inputRgba.size().height / 500;
@@ -218,18 +213,15 @@ public class ImageProcessor extends Handler {
             drawDocumentBox(mPreviewPoints, mPreviewSize);
 
             return true;
-
         }
 
         mMainActivity.getHUD().clear();
         mMainActivity.invalidateHUD();
 
         return false;
-
     }
 
     private void drawDocumentBox(Point[] points, Size stdSize) {
-
         Path path = new Path();
 
         HUDCanvasView hud = mMainActivity.getHUD();
@@ -257,11 +249,9 @@ public class ImageProcessor extends Handler {
         hud.clear();
         hud.addShape(newBox, paint, border);
         mMainActivity.invalidateHUD();
-
     }
 
     private Quadrilateral getQuadrilateral(ArrayList<MatOfPoint> contours, Size srcSize) {
-
         double ratio = srcSize.height / 500;
         int height = Double.valueOf(srcSize.height / ratio).intValue();
         int width = Double.valueOf(srcSize.width / ratio).intValue();
@@ -281,7 +271,6 @@ public class ImageProcessor extends Handler {
             Point[] foundPoints = sortPoints(points);
 
             if (insideArea(foundPoints, size)) {
-
                 return new Quadrilateral(c, foundPoints);
             }
             // }
@@ -327,7 +316,6 @@ public class ImageProcessor extends Handler {
     }
 
     private boolean insideArea(Point[] rp, Size size) {
-
         int width = Double.valueOf(size.width).intValue();
         int height = Double.valueOf(size.height).intValue();
 
@@ -393,10 +381,10 @@ public class ImageProcessor extends Handler {
     }
 
     private ArrayList<MatOfPoint> findContours(Mat src) {
-
         Mat grayImage;
         Mat cannedImage;
         Mat resizedImage;
+        Mat binaryImage;
 
         double ratio = src.size().height / 500;
         int height = Double.valueOf(src.size().height / ratio).intValue();
@@ -405,12 +393,14 @@ public class ImageProcessor extends Handler {
 
         resizedImage = new Mat(size, CvType.CV_8UC4);
         grayImage = new Mat(size, CvType.CV_8UC4);
+        binaryImage = new Mat(size, CvType.CV_8UC4);
         cannedImage = new Mat(size, CvType.CV_8UC1);
 
         Imgproc.resize(src, resizedImage, size);
         Imgproc.cvtColor(resizedImage, grayImage, Imgproc.COLOR_RGBA2GRAY, 4);
         Imgproc.GaussianBlur(grayImage, grayImage, new Size(5, 5), 0);
-        Imgproc.Canny(grayImage, cannedImage, 80, 100, 3, false);
+        Imgproc.threshold(grayImage, binaryImage, 0, 255, Imgproc.THRESH_TOZERO + Imgproc.THRESH_OTSU);
+        Imgproc.Canny(binaryImage, cannedImage, 80, 100, 3, false);
 
         ArrayList<MatOfPoint> contours = new ArrayList<>();
         Mat hierarchy = new Mat();
