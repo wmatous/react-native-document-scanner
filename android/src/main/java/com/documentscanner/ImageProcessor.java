@@ -117,24 +117,26 @@ public class ImageProcessor extends Handler {
     mMainActivity.setImageProcessorBusy(false);
   }
 
+  // Currently does not actually process for cropping
   private void processPicture(Mat picture) {
     Mat img = Imgcodecs.imdecode(picture, Imgcodecs.CV_LOAD_IMAGE_UNCHANGED);
     picture.release();
-
-    Log.d(TAG, "processPicture - imported image " + img.size().width + "x" + img.size().height);
 
     if (mBugRotate) {
       Core.flip(img, img, 1);
       Core.flip(img, img, 0);
     }
 
-    ScannedDocument doc = detectDocument(img);
+    mMainActivity.saveDocument(new ScannedDocument(img));
+    img.release();
 
-    mMainActivity.getHUD().clear();
-    mMainActivity.invalidateHUD();
-    mMainActivity.saveDocument(doc);
-    doc.release();
-    picture.release();
+    // Detect doc if you want to crop now
+    // ScannedDocument doc = detectDocument(img);
+    // mMainActivity.getHUD().clear();
+    // mMainActivity.invalidateHUD();
+    // mMainActivity.saveDocument(doc);
+    // doc.release();
+    // picture.release();
   }
 
   private ScannedDocument detectDocument(Mat inputRgba) {

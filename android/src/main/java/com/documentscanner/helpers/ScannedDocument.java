@@ -38,7 +38,8 @@ public class ScannedDocument {
     }
 
     public WritableMap previewPointsAsHash() {
-        if (this.previewPoints == null) return null;
+        if (this.previewPoints == null)
+            return null;
         WritableMap rectangleCoordinates = new WritableNativeMap();
 
         WritableMap topLeft = new WritableNativeMap();
@@ -56,8 +57,6 @@ public class ScannedDocument {
         WritableMap bottomLeft = new WritableNativeMap();
         bottomLeft.putDouble("x", this.originalPoints[3].x);
         bottomLeft.putDouble("y", this.originalPoints[3].y);
-
-
 
         rectangleCoordinates.putMap("topLeft", topLeft);
         rectangleCoordinates.putMap("topRight", topRight);

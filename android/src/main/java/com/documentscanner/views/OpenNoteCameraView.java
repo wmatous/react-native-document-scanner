@@ -591,10 +591,10 @@ public class OpenNoteCameraView extends JavaCameraView implements PictureCallbac
   }
 
   public void saveDocument(ScannedDocument scannedDocument) {
+    // Mat doc = (scannedDocument.processed != null) ? scannedDocument.processed :
+    // scannedDocument.original;
 
-    Mat doc = (scannedDocument.processed != null) ? scannedDocument.processed : scannedDocument.original;
-
-    String fileName = this.saveToDirectory(doc);
+    // String fileName = this.saveToDirectory(doc);
     String initialFileName = this.saveToDirectory(scannedDocument.original);
 
     WritableMap data = new WritableNativeMap();
@@ -602,19 +602,16 @@ public class OpenNoteCameraView extends JavaCameraView implements PictureCallbac
     if (this.listener != null) {
       data.putInt("height", scannedDocument.heightWithRatio);
       data.putInt("width", scannedDocument.widthWithRatio);
-      data.putString("croppedImage", "file://" + fileName);
-      data.putString("initialImage", "file://" + initialFileName);
+      // data.putString("croppedImage", "file://" + fileName);
+      data.putString("capturedImage", "file://" + initialFileName);
       // data.putMap("rectangleCoordinates", scannedDocument.previewPointsAsHash());
 
       this.listener.onPictureTaken(data);
     }
 
-    Log.d(TAG, "wrote: " + fileName);
-
-    if (this.saveOnDevice) {
-      // TODO: Change name addImageToGallery to saveOnDevice
-      addImageToGallery(fileName, mContext);
-    }
+    // if (this.saveOnDevice) {
+    // addImageToGallery(fileName, mContext);
+    // }
 
     refreshCamera();
 

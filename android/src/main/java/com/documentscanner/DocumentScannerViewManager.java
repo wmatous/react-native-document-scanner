@@ -16,96 +16,96 @@ import javax.annotation.Nullable;
 
 public class DocumentScannerViewManager extends ViewGroupManager<MainView> {
 
-  private static final String REACT_CLASS = "RNPdfScanner";
-  private MainView view = null;
-  private String processingState = "";
+    private static final String REACT_CLASS = "RNPdfScanner";
+    private MainView view = null;
+    private String processingState = "";
 
-  @Override
-  public String getName() {
-    return REACT_CLASS;
-  }
+    @Override
+    public String getName() {
+        return REACT_CLASS;
+    }
 
-  @Override
-  protected MainView createViewInstance(final ThemedReactContext reactContext) {
-    view = new MainView(reactContext, (Activity) reactContext.getBaseContext());
-    view.setOnProcessingListener(new OpenNoteCameraView.OnProcessingListener() {
-      @Override
-      public void onProcessingChange(String state) {
-        if (!processingState.equals(state) && !processingState.equals("processing")) {
-          processingState = state;
+    @Override
+    protected MainView createViewInstance(final ThemedReactContext reactContext) {
+        view = new MainView(reactContext, (Activity) reactContext.getBaseContext());
+        view.setOnProcessingListener(new OpenNoteCameraView.OnProcessingListener() {
+            @Override
+            public void onProcessingChange(String state) {
+                if (!processingState.equals(state) && !processingState.equals("processing")) {
+                    processingState = state;
 
-          WritableMap data = new WritableNativeMap();
-          if (processingState.equals("searching")) {
-            data.putBoolean("documentDetected", false);
-          } else if (processingState.equals("detected")) {
-            data.putBoolean("documentDetected", true);
-          } else if (processingState.equals("processing")) {
-            data.putBoolean("processing", true);
-          }
+                    WritableMap data = new WritableNativeMap();
+                    if (processingState.equals("searching")) {
+                        data.putBoolean("documentDetected", false);
+                    } else if (processingState.equals("detected")) {
+                        data.putBoolean("documentDetected", true);
+                    } else if (processingState.equals("processing")) {
+                        data.putBoolean("processing", true);
+                    }
 
-          System.out.println("l33t process change - " + state);
-          dispatchEvent(reactContext, "onProcessingChange", data);
-        }
-      }
-    });
+                    dispatchEvent(reactContext, "onProcessingChange", data);
+                }
+            }
+        });
 
-    view.setOnScannerListener(new OpenNoteCameraView.OnScannerListener() {
-      @Override
-      public void onPictureTaken(WritableMap data) {
-        processingState = "";
-        dispatchEvent(reactContext, "onPictureTaken", data);
-      }
-    });
+        view.setOnScannerListener(new OpenNoteCameraView.OnScannerListener() {
+            @Override
+            public void onPictureTaken(WritableMap data) {
+                processingState = "";
+                dispatchEvent(reactContext, "onPictureTaken", data);
+            }
+        });
 
-    return view;
-  }
+        return view;
+    }
 
-  private void dispatchEvent(ReactContext reactContext, String eventName, @Nullable WritableMap params) {
-    reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit(eventName, params);
-  }
+    private void dispatchEvent(ReactContext reactContext, String eventName, @Nullable WritableMap params) {
+        reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit(eventName, params);
+    }
 
-  @ReactProp(name = "documentAnimation", defaultBoolean = false)
-  public void setDocumentAnimation(MainView view, boolean animate) {
-    // TODO: What is documentAnimation?
-  }
+    @ReactProp(name = "documentAnimation", defaultBoolean = false)
+    public void setDocumentAnimation(MainView view, boolean animate) {
+        // TODO: What is documentAnimation?
+    }
 
-  @ReactProp(name = "overlayColor")
-  public void setOverlayColor(MainView view, String rgbaColor) {
-    view.setOverlayColor(rgbaColor);
-  }
+    @ReactProp(name = "overlayColor")
+    public void setOverlayColor(MainView view, String rgbaColor) {
+        view.setOverlayColor(rgbaColor);
+    }
 
-  @ReactProp(name = "saveOnDevice", defaultBoolean = false)
-  public void setSaveOnDevice(MainView view, Boolean saveOnDevice) {
-    view.setSaveOnDevice(saveOnDevice);
-  }
+    @ReactProp(name = "saveOnDevice", defaultBoolean = false)
+    public void setSaveOnDevice(MainView view, Boolean saveOnDevice) {
+        view.setSaveOnDevice(saveOnDevice);
+    }
 
-  @ReactProp(name = "detectionCountBeforeCapture", defaultInt = 15)
-  public void setDetectionCountBeforeCapture(MainView view, int numberOfRectangles) {
-    view.setDetectionCountBeforeCapture(numberOfRectangles);
-  }
+    @ReactProp(name = "detectionCountBeforeCapture", defaultInt = 15)
+    public void setDetectionCountBeforeCapture(MainView view, int numberOfRectangles) {
+        view.setDetectionCountBeforeCapture(numberOfRectangles);
+    }
 
-  @ReactProp(name = "durationBetweenCaptures", defaultDouble = 0)
-  public void setDurationBetweenCaptures(MainView view, double durationBetweenCaptures) {
-    view.setDurationBetweenCaptures(durationBetweenCaptures);
-  }
+    @ReactProp(name = "durationBetweenCaptures", defaultDouble = 0)
+    public void setDurationBetweenCaptures(MainView view, double durationBetweenCaptures) {
+        view.setDurationBetweenCaptures(durationBetweenCaptures);
+    }
 
-  @ReactProp(name = "enableTorch", defaultBoolean = false)
-  public void setEnableTorch(MainView view, Boolean enable) {
-    view.setEnableTorch(enable);
-  }
+    @ReactProp(name = "enableTorch", defaultBoolean = false)
+    public void setEnableTorch(MainView view, Boolean enable) {
+        view.setEnableTorch(enable);
+    }
 
-  @ReactProp(name = "manualOnly", defaultBoolean = false)
-  public void setManualOnly(MainView view, Boolean manualOnly) {
-    view.setManualOnly(manualOnly);
-  }
+    @ReactProp(name = "manualOnly", defaultBoolean = false)
+    public void setManualOnly(MainView view, Boolean manualOnly) {
+        view.setManualOnly(manualOnly);
+    }
 
-  @ReactProp(name = "brightness", defaultDouble = 10)
-  public void setBrightness(MainView view, double brightness) {
-    view.setBrightness(brightness);
-  }
+    @ReactProp(name = "brightness", defaultDouble = 10)
+    public void setBrightness(MainView view, double brightness) {
+        view.setBrightness(brightness);
+    }
 
-  @ReactProp(name = "contrast", defaultDouble = 1)
-  public void setContrast(MainView view, double contrast) {
-    view.setContrast(contrast);
-  }
+    @ReactProp(name = "contrast", defaultDouble = 1)
+    public void setContrast(MainView view, double contrast) {
+        view.setContrast(contrast);
+    }
+
 }
